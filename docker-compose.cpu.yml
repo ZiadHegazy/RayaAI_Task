@@ -17,10 +17,6 @@ services:
     volumes: ["ollama_data:/root/.ollama"]
     environment:
       - OLLAMA_KEEP_ALIVE=-1
-    deploy:
-      resources:
-        reservations:
-          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
     # Pre-pull models on startup
     entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull qwen2.5:7b && ollama pull nomic-embed-text && wait"]
 
@@ -32,6 +28,12 @@ services:
       NEXTAUTH_SECRET: mysecret
       NEXTAUTH_URL: http://localhost:3000
       SALT: mysalt
+      LANGFUSE_INIT_ORG_ID: telecom-org
+      LANGFUSE_INIT_PROJECT_ID: telecom-poc
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-e905abba-a6ae-4906-98a1-29039049ebd8
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-beec9cea-6e11-44cd-88b0-d6e44272ff7f
+      LANGFUSE_INIT_USER_EMAIL: admin@telecom.com
+      LANGFUSE_INIT_USER_PASSWORD: password
 
   backend:
     build: ./backend
