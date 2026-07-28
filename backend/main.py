@@ -6,9 +6,9 @@ from sqlalchemy import text, select
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
-import os, shutil, time
+import os, shutil, time, json
 
-from obs_logger import obs_log, get_traces, clear_traces, new_request_id, current_request_id
+from obs_logger import obs_log, clear_active_traces, new_request_id, current_request_id
 
 from db import get_db, engine
 from graph import graph, AgentState
@@ -92,11 +92,18 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db), current_use
     response_text = result["messages"][-1].content
 
     duration_ms = int((time.perf_counter() - t_start) * 1000)
-    obs_log("api", "REQUEST_END", {
+    trace = obs_log("api", "REQUEST_END", {
         "duration_ms": duration_ms,
         "steps": result.get("step_count", 0),
         "response_preview": response_text[:120],
     })
+    
+    if trace:
+        # Save trace to DB
+        await db.execute(
+            text("INSERT INTO orchestration_logs (request_id, started_at, duration_ms, trace_data) VALUES (:rid, :start, :dur, :data)"),
+            {"rid": req_id, "start": trace["started_at"], "dur": trace["duration_ms"], "data": json.dumps(trace)}
+        )
     
     # Save assistant message
     await db.execute(text("INSERT INTO chat_history (user_id, role, content) VALUES (:uid, 'assistant', :msg)"), {"uid": user_id, "msg": response_text})
@@ -156,12 +163,16 @@ async def clear_tickets(db: AsyncSession = Depends(get_db)):
 
 # ── Observability endpoints ───────────────────────────────────────────────
 @app.get("/api/admin/logs")
-async def get_logs():
-    """Return the last 50 completed request traces from the in-memory buffer."""
-    return get_traces()
+async def get_logs(db: AsyncSession = Depends(get_db)):
+    """Return the last 50 completed request traces from the database."""
+    res = await db.execute(text("SELECT trace_data FROM orchestration_logs ORDER BY started_at DESC LIMIT 50"))
+    # trace_data is JSONB, sqlalchemy returns it as a dict or string. Ensure it's dict.
+    return [r[0] if isinstance(r[0], dict) else json.loads(r[0]) for r in res.fetchall()]
 
 @app.delete("/api/admin/logs")
-async def clear_logs():
-    """Flush the in-memory log buffer."""
-    clear_traces()
+async def clear_logs(db: AsyncSession = Depends(get_db)):
+    """Flush the log buffer from DB and memory."""
+    await db.execute(text("DELETE FROM orchestration_logs"))
+    await db.commit()
+    clear_active_traces()
     return {"status": "cleared"}

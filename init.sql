@@ -43,6 +43,14 @@ CREATE TABLE documents (
     embedding vector(768) -- nomic-embed-text dimension
 );
 
+-- Observability Logs
+CREATE TABLE orchestration_logs (
+    request_id VARCHAR(50) PRIMARY KEY,
+    started_at TIMESTAMP,
+    duration_ms INT,
+    trace_data JSONB
+);
+
 -- Seed Data
 INSERT INTO users (username, password_hash, role, customer_id) VALUES 
 ('user1', 'password', 'customer', 101), -- password: password

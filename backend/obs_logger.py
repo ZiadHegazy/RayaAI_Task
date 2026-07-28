@@ -34,7 +34,6 @@ current_request_id: ContextVar[str] = ContextVar("current_request_id", default="
 
 # ── Internal store ───────────────────────────────────────────────────────────
 _lock = Lock()
-_traces: deque[dict] = deque(maxlen=MAX_TRACES)   # completed traces
 _active: dict[str, dict] = {}                      # in-progress traces keyed by request_id
 
 # ── Python stdlib logger (writes to stdout/stderr captured by Docker) ────────
@@ -47,9 +46,9 @@ if not _py_logger.handlers:
     _py_logger.propagate = False
 
 
-def obs_log(component: str, event: str, data: dict | None = None) -> None:
+def obs_log(component: str, event: str, data: dict | None = None) -> dict | None:
     """
-    Emit one structured log entry.
+    Emit one structured log entry. Returns the full trace if event == 'REQUEST_END', else None.
 
     Parameters
     ----------
@@ -91,27 +90,23 @@ def obs_log(component: str, event: str, data: dict | None = None) -> None:
             }
         _active[request_id]["steps"].append(entry)
 
-        # When the request finishes, move to completed traces
+        # When the request finishes, return the completed trace for DB persistence
         if event == "REQUEST_END":
             trace = _active.pop(request_id)
             trace["finished_at"] = now
             trace["duration_ms"] = safe_data.get("duration_ms")
-            _traces.appendleft(trace)   # newest first
+            return trace
+            
+    return None
 
 
-def get_traces() -> list[dict]:
-    """Return completed traces newest-first (safe copy)."""
+def clear_active_traces() -> None:
+    """Flush any in-progress entries."""
     with _lock:
-        return list(_traces)
-
-
-def clear_traces() -> None:
-    """Flush both completed traces and any in-progress entries."""
-    with _lock:
-        _traces.clear()
         _active.clear()
 
 
 def new_request_id() -> str:
     """Generate a short 8-char request ID."""
     return str(uuid.uuid4())[:8]
+
